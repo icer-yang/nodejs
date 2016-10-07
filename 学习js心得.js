@@ -180,15 +180,15 @@ Class Promise{
   String promiseStatus ='pending'
   String promiseValue = ''
   Promise _next 
-  public then(exector){
+  public then(onResolved,onReject){
       this._next =new Promise(exector)
       next = this._next
       status = this.status
-      this._resolves.push(resolve)
+      this._resolves.push(onResolveed)
       return next
   }
-  public  resolve(){
-      this.then()
+  public  resolve(value){
+      this.then(executor( , ,value))
   }
   public Promise(executer){
       exector(this.resolve,this.reject)
@@ -377,4 +377,267 @@ function findPosts() {
             }); 
         }); 
     }); 
+}
+
+
+
+try {
+  module.exports = Promise
+} catch (e) {}
+
+function Promise(executor) {
+  var self = this
+
+  self.status = 'pending'
+  self.data = undefined  // Promise的值
+  self.onResolvedCallback = []
+  self.onRejectedCallback = []
+
+  function resolve(value) {
+    if (value instanceof Promise) {
+      return value.then(resolve, reject)
+    }
+    setTimeout(function() { // 异步执行,下一个loop时执行所有的回调函数
+      if (self.status === 'pending') {
+        self.status = 'resolved'
+        self.data = value
+        for (var i = 0; i < self.onResolvedCallback.length; i++) {
+          self.onResolvedCallback[i](value)
+        }
+      }
+    })
+  }
+
+  function reject(reason) {
+    setTimeout(function() { // 异步执行所有的回调函数
+      if (self.status === 'pending') {
+        self.status = 'rejected'
+        self.data = reason
+        for (var i = 0; i < self.onRejectedCallback.length; i++) {
+          self.onRejectedCallback[i](reason)
+        }
+      }
+    })
+  }
+
+构造函数里面参数是executor,是一个 function(agr1=resolve,agr2=reject){...if...condition... agr1( 传入普通值value或promise ),else agr2( )}
+执行resolve,resolve就是一个回调函数,这个回调函数所用的的参数是由executor传入的普通值或promise,当是promise时,直接执行该promise的then方法
+当传入的是普通值value的时候,settimeout异步执行,到下一次loop回调函数时才执行,所以这时开始执行then,此时还是pending状态,故而then中new一个promise2,在这个promise2中,通过 (self) 将上一个promise1
+中的onReslovedCallback数组push一个function进去,此function执行then方法传入OnResolved参数,而且是将第一个executor中agr1传入的参数作为onResolved的参数
+也就是说相当于将then的resolved参数当作了executor函数{}中异步代码的回调
+
+那么,当我传入的onResolved参数的{}中没有执行resolve时,到promise2后怎么继续then下去呢,通过resolvePromise来,
+继续resolve,此时传入resolve的参数是 onResolved() 执行后返回的值,然后循环下去
+
+
+
+  function then(onResolved, onRejected) {
+    var self = this
+    var promise2
+    onResolved = typeof onResolved === 'function' ? onResolved : function(v) {
+      return v
+    }
+    onRejected = typeof onRejected === 'function' ? onRejected : function(r) {
+      throw r
+    }
+
+    if (self.status === 'pending') {
+      // 这里之所以没有异步执行，是因为这些函数必然会被resolve或reject调用，而resolve或reject函数里的内容已是异步执行，构造函数里的定义
+      return promise2 = new Promise(function(resolve, reject) {
+        self.onResolvedCallback.push(function(value) {
+          try {
+            var x = onResolved(value)
+            resolvePromise(promise2, x, resolve, reject)
+          } catch (r) {
+            reject(r)
+          }
+        })
+
+        self.onRejectedCallback.push(function(reason) {
+            try {
+              var x = onRejected(reason)
+              resolvePromise(promise2, x, resolve, reject)
+            } catch (r) {
+              reject(r)
+            }
+          })
+      })
+    }
+  }
+
+    if (self.status === 'resolved') {
+      return promise2 = new Promise(function(resolve, reject) {
+        setTimeout(function() { // 异步执行onResolved
+          try {
+            var x = onResolved(self.data)
+            resolvePromise(promise2, x, resolve, reject)
+          } catch (reason) {
+            reject(reason)
+          }
+        })
+      })
+    }
+
+    if (self.status === 'rejected') {
+      return promise2 = new Promise(function(resolve, reject) {
+        setTimeout(function() { // 异步执行onRejected
+          try {
+            var x = onRejected(self.data)
+            resolvePromise(promise2, x, resolve, reject)
+          } catch (reason) {
+            reject(reason)
+          }
+        })
+      })
+    }
+
+
+
+  try {
+    executor(resolve, reject)
+  } catch (reason) {
+    reject(reason)
+  }
+}
+
+
+function resolvePromise(promise2, x, resolve, reject) {
+  var then
+  var thenCalledOrThrow = false
+
+  if (promise2 === x) {
+    return reject(new TypeError('Chaining cycle detected for promise!'))
+  }
+
+  if (x instanceof Promise) {
+    if (x.status === 'pending') { //because x could resolved by a Promise Object
+      x.then(function(v) {
+        resolvePromise(promise2, v, resolve, reject)
+      }, reject)
+    } else { //but if it is resolved, it will never resolved by a Promise Object but a static value;
+      x.then(resolve, reject)
+    }
+    return
+  }
+
+  if ((x !== null) && ((typeof x === 'object') || (typeof x === 'function'))) {
+    try {
+      then = x.then //because x.then could be a getter
+      if (typeof then === 'function') {
+        then.call(x, function rs(y) {
+          if (thenCalledOrThrow) return
+          thenCalledOrThrow = true
+          return resolvePromise(promise2, y, resolve, reject)
+        }, function rj(r) {
+          if (thenCalledOrThrow) return
+          thenCalledOrThrow = true
+          return reject(r)
+        })
+      } else {
+        resolve(x)
+      }
+    } catch (e) {
+      if (thenCalledOrThrow) return
+      thenCalledOrThrow = true
+      return reject(e)
+    }
+  } else {
+    resolve(x)
+  }
+}
+
+Promise.prototype.catch = function(onRejected) {
+  return this.then(null, onRejected)
+}
+
+Promise.deferred = Promise.defer = function() {
+  var dfd = {}
+  dfd.promise = new Promise(function(resolve, reject) {
+    dfd.resolve = resolve
+    dfd.reject = reject
+  })
+  return dfd
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Promise.prototype.then = function(onResolved, onRejected) {
+  var self = this
+  var promise2
+
+  // 根据标准，如果then的参数不是function，则我们需要忽略它，此处以如下方式处理
+  onResolved = typeof onResolved === 'function' ? onResolved : function(value) {}
+  onRejected = typeof onRejected === 'function' ? onRejected : function(reason) {}
+
+  if (self.status === 'resolved') {
+    // 如果promise1(此处即为this/self)的状态已经确定并且是resolved，我们调用onResolved
+    // 因为考虑到有可能throw，所以我们将其包在try/catch块里
+    return promise2 = new Promise(function(resolve, reject) {
+      try {
+        var x = onResolved(self.data)
+        if (x instanceof Promise) { // 如果onResolved的返回值是一个Promise对象，直接取它的结果做为promise2的结果
+          x.then(resolve, reject)
+        }
+        resolve(x) // 否则，以它的返回值做为promise2的结果
+      } catch (e) {
+        reject(e) // 如果出错，以捕获到的错误做为promise2的结果
+      }
+    })
+  }
+
+  // 此处与前一个if块的逻辑几乎相同，区别在于所调用的是onRejected函数，就不再做过多解释
+  if (self.status === 'rejected') {
+    return promise2 = new Promise(function(resolve, reject) {
+      try {
+        var x = onRejected(self.data)
+        if (x instanceof Promise) {
+          x.then(resolve, reject)
+        }
+      } catch (e) {
+        reject(e)
+      }
+    })
+  }
+
+  if (self.status === 'pending') {
+  // 如果当前的Promise还处于pending状态，我们并不能确定调用onResolved还是onRejected，
+  // 只能等到Promise的状态确定后，才能确实如何处理。
+  // 所以我们需要把我们的**两种情况**的处理逻辑做为callback放入promise1(此处即this/self)的回调数组里
+  // 逻辑本身跟第一个if块内的几乎一致，此处不做过多解释
+    return promise2 = new Promise(function(resolve, reject) {
+      self.onResolvedCallback.push(function(value) {
+        try {
+          var x = onResolved(self.data)
+          if (x instanceof Promise) {
+            x.then(resolve, reject)
+          }
+        } catch (e) {
+          reject(e)
+        }
+      })
+
+      self.onRejectedCallback.push(function(reason) {
+        try {
+          var x = onRejected(self.data)
+          if (x instanceof Promise) {
+            x.then(resolve, reject)
+          }
+        } catch (e) {
+          reject(e)
+        }
+      })
+    })
+  }
 }
