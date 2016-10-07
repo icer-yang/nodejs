@@ -429,6 +429,12 @@ function Promise(executor) {
 那么,当我传入的onResolved参数的{}中没有执行resolve时,到promise2后怎么继续then下去呢,通过resolvePromise来,
 继续resolve,此时传入resolve的参数是 onResolved() 执行后返回的值,然后循环下去
 
+总而言之,new Promise(executor).then(OnResolved,Onrejected).then(OnResolved2,OnRejected2)
+executor是一个会被传入resolve,reject的function
+OnResolved是一个会被传入executor的{}中resolve所传入的参数作为参数的普通function,其返回值可以是promise对象,例如return new Promise( executor)
+OnResolved2是一个会被传入OnResolve执行后的返回值作为参数的function
+
+
 
 
   function then(onResolved, onRejected) {
